@@ -1,14 +1,16 @@
 from django.contrib.auth import login, logout, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
+from django.contrib.auth.forms import PasswordChangeForm
 from django.shortcuts import get_object_or_404, redirect, render
 
 from utils import paginate_queryset
-
-from .forms import LoginForm, ProfileEditForm, RegisterForm, UserPasswordChangeForm
+from .forms import LoginForm, ProfileEditForm, RegisterForm
 from .models import User
 
+# Константы
 USERS_PER_PAGE = 12
 
+# Фильтры для страницы пользователей
 FILTER_FAVORITE_AUTHORS = "favorite_authors"
 FILTER_PARTICIPATED_AUTHORS = "participated_authors"
 FILTER_LIKED_MY_PROJECTS = "liked_my_projects"
@@ -16,36 +18,31 @@ FILTER_MY_PROJECT_PARTICIPANTS = "my_project_participants"
 
 
 def register_view(request):
-    if request.method == "POST":
-        form = RegisterForm(request.POST)
-        if form.is_valid():
-            registered_user = form.save()
-            login(request, registered_user)
-            return redirect("projects:list")
-    else:
-        form = RegisterForm()
-
-    return render(
-        request,
-        "users/register.html",
-        {"form": form},
-    )
+    form = RegisterForm(request.POST or None)
+    
+    if not form.is_valid():
+        return render(request, "users/register.html", {"form": form})
+    
+    user = form.save(commit=False)
+    user.set_password(form.cleaned_data["password"])
+    user.save()
+    
+    login(request, user)
+    return redirect("projects:list")
 
 
 def login_view(request):
-    if request.method == "POST":
-        form = LoginForm(request.POST)
-        if form.is_valid():
-            login(request, form.user)
-            return redirect("projects:list")
-    else:
-        form = LoginForm()
-
-    return render(
-        request,
-        "users/login.html",
-        {"form": form},
-    )
+    if request.user.is_authenticated:
+        return redirect("projects:list")
+    
+    form = LoginForm(request.POST or None)
+    
+    if form.is_valid():
+        user = form.cleaned_data["user"]
+        login(request, user)
+        return redirect("projects:list")
+    
+    return render(request, "users/login.html", {"form": form})
 
 
 @login_required
@@ -55,40 +52,40 @@ def logout_view(request):
 
 
 def users_list_view(request):
-    queryset = User.objects.order_by("-id")
-    active_filter = request.GET.get("filter")
-
-    if request.user.is_authenticated and active_filter:
-        if active_filter == FILTER_FAVORITE_AUTHORS:
-            favorite_ids = request.user.favorites.values_list("id", flat=True)
-            queryset = queryset.filter(owned_projects__id__in=favorite_ids).distinct()
-
-        elif active_filter == FILTER_PARTICIPATED_AUTHORS:
-            participated_ids = request.user.participated_projects.values_list(
-                "id", flat=True
-            )
-            queryset = queryset.filter(
-                owned_projects__id__in=participated_ids
-            ).distinct()
-
-        elif active_filter == FILTER_LIKED_MY_PROJECTS:
-            my_project_ids = request.user.owned_projects.values_list("id", flat=True)
-            queryset = (
-                queryset.filter(favorites__id__in=my_project_ids)
-                .exclude(id=request.user.id)
-                .distinct()
-            )
-
-        elif active_filter == FILTER_MY_PROJECT_PARTICIPANTS:
-            my_project_ids = request.user.owned_projects.values_list("id", flat=True)
-            queryset = (
-                queryset.filter(participated_projects__id__in=my_project_ids)
-                .exclude(id=request.user.id)
-                .distinct()
-            )
-
+    queryset = User.objects.all()
     page_obj = paginate_queryset(request, queryset, USERS_PER_PAGE)
-
+    
+    # Фильтры для авторизованных пользователей
+    active_filter = None
+    if request.user.is_authenticated:
+        filter_type = request.GET.get("filter")
+        if filter_type == FILTER_FAVORITE_AUTHORS:
+            favorite_projects = request.user.favorites.all()
+            queryset = User.objects.filter(
+                owned_projects__in=favorite_projects
+            ).distinct()
+            active_filter = FILTER_FAVORITE_AUTHORS
+        elif filter_type == FILTER_PARTICIPATED_AUTHORS:
+            participated_projects = request.user.participated_projects.all()
+            queryset = User.objects.filter(
+                owned_projects__in=participated_projects
+            ).distinct()
+            active_filter = FILTER_PARTICIPATED_AUTHORS
+        elif filter_type == FILTER_LIKED_MY_PROJECTS:
+            my_projects = request.user.owned_projects.all()
+            queryset = User.objects.filter(
+                favorites__in=my_projects
+            ).distinct()
+            active_filter = FILTER_LIKED_MY_PROJECTS
+        elif filter_type == FILTER_MY_PROJECT_PARTICIPANTS:
+            my_projects = request.user.owned_projects.all()
+            queryset = User.objects.filter(
+                participated_projects__in=my_projects
+            ).distinct()
+            active_filter = FILTER_MY_PROJECT_PARTICIPANTS
+        
+        page_obj = paginate_queryset(request, queryset, USERS_PER_PAGE)
+    
     return render(
         request,
         "users/participants.html",
@@ -100,56 +97,41 @@ def users_list_view(request):
 
 
 def user_detail_view(request, user_id):
-    profile_user = get_object_or_404(
-        User.objects.prefetch_related("owned_projects"),
-        id=user_id,
-    )
-
+    user_obj = get_object_or_404(User, id=user_id)
     return render(
         request,
         "users/user-details.html",
-        {"user": profile_user},
+        {"user_obj": user_obj},
     )
 
 
 @login_required
 def edit_profile_view(request):
     current_user = request.user
-
-    if request.method == "POST":
-        form = ProfileEditForm(
-            request.POST,
-            request.FILES,
-            instance=current_user,
-        )
-        if form.is_valid():
-            form.save()
-            return redirect("users:detail", user_id=current_user.id)
-    else:
-        form = ProfileEditForm(instance=current_user)
-
-    return render(
-        request,
-        "users/edit_profile.html",
-        {"form": form},
+    form = ProfileEditForm(
+        request.POST or None,
+        request.FILES or None,
+        instance=current_user,
     )
+    
+    if not form.is_valid():
+        return render(request, "users/edit_profile.html", {"form": form})
+    
+    form.save()
+    return redirect("users:detail", user_id=current_user.id)
 
 
 @login_required
 def change_password_view(request):
     current_user = request.user
-
-    if request.method == "POST":
-        form = UserPasswordChangeForm(current_user, request.POST)
-        if form.is_valid():
-            updated_user = form.save()
-            update_session_auth_hash(request, updated_user)
-            return redirect("users:detail", user_id=current_user.id)
-    else:
-        form = UserPasswordChangeForm(current_user)
-
-    return render(
-        request,
-        "users/change_password.html",
-        {"form": form},
+    form = PasswordChangeForm(
+        user=current_user,
+        data=request.POST or None,
     )
+    
+    if not form.is_valid():
+        return render(request, "users/change_password.html", {"form": form})
+    
+    form.save()
+    update_session_auth_hash(request, current_user)
+    return redirect("users:detail", user_id=current_user.id)

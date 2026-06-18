@@ -1,65 +1,95 @@
-import hashlib
-import re
+import random
 from io import BytesIO
 
 from django.core.files.base import ContentFile
 from django.core.paginator import Paginator
 from PIL import Image, ImageDraw, ImageFont
 
-PHONE_PATTERN = re.compile(r"^(8\d{10}|\+7\d{10})$")
-
+# Константы
 AVATAR_COLORS = [
-    "#6B8E73",
-    "#7C90A0",
-    "#8D7B68",
-    "#7F6A93",
-    "#5F8A8B",
-    "#8A7E66",
+    "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4",
+    "#FFEAA7", "#DDA0DD", "#98D8C8", "#F7DC6F",
+    "#A8E6CF", "#DCEDC1", "#FFD3B6", "#FFAAA5",
+    "#D4A5A5", "#9B59B6", "#3498DB", "#1ABC9C",
+    "#2ECC71", "#F1C40F", "#E67E22", "#E74C3C",
+    "#7F6A93", "#5F8A8B", "#8A7E66",
 ]
+AVATAR_SIZE = 128
 
 
-def paginate_queryset(request, queryset, per_page):
+def get_color_from_string(string: str) -> str:
+    """Выбирает цвет на основе строки (email или name)"""
+    hash_value = hash(string)
+    color_index = abs(hash_value) % len(AVATAR_COLORS)
+    return AVATAR_COLORS[color_index]
+
+
+def generate_avatar_file(name: str, email: str) -> ContentFile:
+    """Генерирует файл аватарки с инициалами"""
+    # Выбираем цвет на основе email
+    color = get_color_from_string(email)
+    
+    # Создаем изображение
+    image = Image.new("RGB", (AVATAR_SIZE, AVATAR_SIZE), color)
+    draw = ImageDraw.Draw(image)
+    
+    # Получаем инициалы
+    name_parts = name.strip().split()
+    if len(name_parts) >= 2:
+        initials = f"{name_parts[0][0]}{name_parts[1][0]}".upper()
+    elif len(name_parts) == 1:
+        initials = name_parts[0][0].upper()
+    else:
+        initials = "U"
+    
+    # Рисуем текст
+    try:
+        font = ImageFont.truetype("arial.ttf", int(AVATAR_SIZE * 0.5))
+    except:
+        font = ImageFont.load_default()
+    
+    text_bbox = draw.textbbox((0, 0), initials, font=font)
+    text_width = text_bbox[2] - text_bbox[0]
+    text_height = text_bbox[3] - text_bbox[1]
+    
+    x = (AVATAR_SIZE - text_width) // 2
+    y = (AVATAR_SIZE - text_height) // 2
+    
+    draw.text((x, y), initials, fill="white", font=font)
+    
+    # Сохраняем в BytesIO
+    buffer = BytesIO()
+    image.save(buffer, format="PNG")
+    
+    return ContentFile(
+        buffer.getvalue(),
+        name=f"avatar_{email}.png"
+    )
+
+
+def paginate_queryset(request, queryset, per_page=12):
+    """Пагинация queryset"""
     paginator = Paginator(queryset, per_page)
     page_number = request.GET.get("page")
     return paginator.get_page(page_number)
 
 
-def normalize_phone_number(raw_phone: str) -> str:
-    value = (raw_phone or "").strip()
-    return f"+7{value[-10:]}"
-
-
-def pick_avatar_background(seed: str) -> str:
-    source = (seed or "user").encode("utf-8")
-    color_index = int(hashlib.md5(source).hexdigest(), 16) % len(AVATAR_COLORS)
-    return AVATAR_COLORS[color_index]
-
-
-def build_avatar_file(name: str, email: str) -> ContentFile:
-    image_size = 128
-    bg_color = pick_avatar_background(email or name)
-
-    avatar_image = Image.new("RGB", (image_size, image_size), bg_color)
-    canvas = ImageDraw.Draw(avatar_image)
-
-    first_letter = (name[:1] if name else "U").upper()
-
-    try:
-        font = ImageFont.truetype("DejaVuSans-Bold.ttf", 72)
-    except OSError:
-        font = ImageFont.load_default()
-
-    text_box = canvas.textbbox((0, 0), first_letter, font=font)
-    text_width = text_box[2] - text_box[0]
-    text_height = text_box[3] - text_box[1]
-
-    text_x = (image_size - text_width) / 2
-    text_y = (image_size - text_height) / 2
-
-    canvas.text((text_x, text_y), first_letter, fill="white", font=font)
-
-    binary_stream = BytesIO()
-    avatar_image.save(binary_stream, format="PNG")
-    file_name = f"avatar_{email.replace('@', '_').replace('.', '_')}.png"
-
-    return ContentFile(binary_stream.getvalue(), name=file_name)
+def normalize_phone_number(phone: str) -> str:
+    """Нормализует номер телефона к формату +7XXXXXXXXXX"""
+    # Удаляем все нецифровые символы
+    phone = ''.join(filter(str.isdigit, phone))
+    
+    if len(phone) == 11 and phone.startswith('8'):
+        return '+7' + phone[1:]
+    elif len(phone) == 11 and phone.startswith('7'):
+        return '+7' + phone[1:]
+    elif len(phone) == 12 and phone.startswith('7'):
+        return '+7' + phone[1:]
+    elif len(phone) == 12 and phone.startswith('+7'):
+        return '+7' + phone[2:]
+    else:
+        raise forms.ValidationError(
+            "Номер должен быть в формате 8XXXXXXXXXX или +7XXXXXXXXXX"
+        )
+    
+    return phone

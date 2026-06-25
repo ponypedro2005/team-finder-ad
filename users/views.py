@@ -3,18 +3,12 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.forms import PasswordChangeForm
 from django.shortcuts import get_object_or_404, redirect, render
 
+from constants import PAGINATION, UserFilters
 from utils import paginate_queryset
 from .forms import LoginForm, ProfileEditForm, RegisterForm
 from .models import User
 
-# Константы
-USERS_PER_PAGE = 12
-
-# Фильтры для страницы пользователей
-FILTER_FAVORITE_AUTHORS = "favorite_authors"
-FILTER_PARTICIPATED_AUTHORS = "participated_authors"
-FILTER_LIKED_MY_PROJECTS = "liked_my_projects"
-FILTER_MY_PROJECT_PARTICIPANTS = "my_project_participants"
+USERS_PER_PAGE = PAGINATION.get("USERS_PER_PAGE", 12)
 
 
 def register_view(request):
@@ -53,38 +47,40 @@ def logout_view(request):
 
 def users_list_view(request):
     queryset = User.objects.all()
-    page_obj = paginate_queryset(request, queryset, USERS_PER_PAGE)
-    
-    # Фильтры для авторизованных пользователей
     active_filter = None
+    
     if request.user.is_authenticated:
         filter_type = request.GET.get("filter")
-        if filter_type == FILTER_FAVORITE_AUTHORS:
+        
+        if filter_type == UserFilters.FAVORITE_AUTHORS:
             favorite_projects = request.user.favorites.all()
             queryset = User.objects.filter(
                 owned_projects__in=favorite_projects
             ).distinct()
-            active_filter = FILTER_FAVORITE_AUTHORS
-        elif filter_type == FILTER_PARTICIPATED_AUTHORS:
+            active_filter = UserFilters.FAVORITE_AUTHORS
+            
+        elif filter_type == UserFilters.PARTICIPATED_AUTHORS:
             participated_projects = request.user.participated_projects.all()
             queryset = User.objects.filter(
                 owned_projects__in=participated_projects
             ).distinct()
-            active_filter = FILTER_PARTICIPATED_AUTHORS
-        elif filter_type == FILTER_LIKED_MY_PROJECTS:
+            active_filter = UserFilters.PARTICIPATED_AUTHORS
+            
+        elif filter_type == UserFilters.LIKED_MY_PROJECTS:
             my_projects = request.user.owned_projects.all()
             queryset = User.objects.filter(
                 favorites__in=my_projects
             ).distinct()
-            active_filter = FILTER_LIKED_MY_PROJECTS
-        elif filter_type == FILTER_MY_PROJECT_PARTICIPANTS:
+            active_filter = UserFilters.LIKED_MY_PROJECTS
+            
+        elif filter_type == UserFilters.MY_PROJECT_PARTICIPANTS:
             my_projects = request.user.owned_projects.all()
             queryset = User.objects.filter(
                 participated_projects__in=my_projects
             ).distinct()
-            active_filter = FILTER_MY_PROJECT_PARTICIPANTS
-        
-        page_obj = paginate_queryset(request, queryset, USERS_PER_PAGE)
+            active_filter = UserFilters.MY_PROJECT_PARTICIPANTS
+    
+    page_obj = paginate_queryset(request, queryset, USERS_PER_PAGE)
     
     return render(
         request,

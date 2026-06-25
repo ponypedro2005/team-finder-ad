@@ -1,20 +1,14 @@
-import random
-from io import BytesIO
+from urllib.parse import urlparse
 
+from django import forms
 from django.core.files.base import ContentFile
 from django.core.paginator import Paginator
 from PIL import Image, ImageDraw, ImageFont
 
-# Константы
-AVATAR_COLORS = [
-    "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4",
-    "#FFEAA7", "#DDA0DD", "#98D8C8", "#F7DC6F",
-    "#A8E6CF", "#DCEDC1", "#FFD3B6", "#FFAAA5",
-    "#D4A5A5", "#9B59B6", "#3498DB", "#1ABC9C",
-    "#2ECC71", "#F1C40F", "#E67E22", "#E74C3C",
-    "#7F6A93", "#5F8A8B", "#8A7E66",
-]
-AVATAR_SIZE = 128
+from constants import AVATAR_COLORS, PAGINATION, UserConstants
+
+# Константы из constants.py
+AVATAR_SIZE = UserConstants.AVATAR_SIZE
 
 
 def get_color_from_string(string: str) -> str:
@@ -26,14 +20,11 @@ def get_color_from_string(string: str) -> str:
 
 def generate_avatar_file(name: str, email: str) -> ContentFile:
     """Генерирует файл аватарки с инициалами"""
-    # Выбираем цвет на основе email
     color = get_color_from_string(email)
     
-    # Создаем изображение
     image = Image.new("RGB", (AVATAR_SIZE, AVATAR_SIZE), color)
     draw = ImageDraw.Draw(image)
     
-    # Получаем инициалы
     name_parts = name.strip().split()
     if len(name_parts) >= 2:
         initials = f"{name_parts[0][0]}{name_parts[1][0]}".upper()
@@ -42,7 +33,6 @@ def generate_avatar_file(name: str, email: str) -> ContentFile:
     else:
         initials = "U"
     
-    # Рисуем текст
     try:
         font = ImageFont.truetype("arial.ttf", int(AVATAR_SIZE * 0.5))
     except:
@@ -57,7 +47,6 @@ def generate_avatar_file(name: str, email: str) -> ContentFile:
     
     draw.text((x, y), initials, fill="white", font=font)
     
-    # Сохраняем в BytesIO
     buffer = BytesIO()
     image.save(buffer, format="PNG")
     
@@ -67,8 +56,10 @@ def generate_avatar_file(name: str, email: str) -> ContentFile:
     )
 
 
-def paginate_queryset(request, queryset, per_page=12):
+def paginate_queryset(request, queryset, per_page=None):
     """Пагинация queryset"""
+    if per_page is None:
+        per_page = PAGINATION.get("USERS_PER_PAGE", 12)
     paginator = Paginator(queryset, per_page)
     page_number = request.GET.get("page")
     return paginator.get_page(page_number)
@@ -76,7 +67,6 @@ def paginate_queryset(request, queryset, per_page=12):
 
 def normalize_phone_number(phone: str) -> str:
     """Нормализует номер телефона к формату +7XXXXXXXXXX"""
-    # Удаляем все нецифровые символы
     phone = ''.join(filter(str.isdigit, phone))
     
     if len(phone) == 11 and phone.startswith('8'):
@@ -93,3 +83,19 @@ def normalize_phone_number(phone: str) -> str:
         )
     
     return phone
+
+
+def validate_github_url(github_url: str) -> str:
+    """Валидация URL GitHub"""
+    if not github_url:
+        return github_url
+    
+    parsed_url = urlparse(github_url)
+    domain = parsed_url.netloc.lower()
+    valid_domain = domain in {"github.com", "www.github.com"}
+    valid_scheme = parsed_url.scheme in {"http", "https"}
+    
+    if not valid_scheme or not valid_domain:
+        raise forms.ValidationError("Укажите ссылку на github.com")
+    
+    return github_url

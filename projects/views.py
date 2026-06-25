@@ -5,11 +5,13 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
+from constants import PAGINATION
 from utils import paginate_queryset
 from .forms import ProjectForm
 from .models import Project
 
-PROJECTS_PER_PAGE = 12
+PROJECTS_PER_PAGE = PAGINATION.get("PROJECTS_PER_PAGE", 12)
+
 
 def project_list_view(request):
     queryset = Project.objects.select_related("owner")
@@ -20,6 +22,7 @@ def project_list_view(request):
         "projects/project_list.html",
         {"projects": page_obj},
     )
+
 
 def project_detail_view(request, project_id):
     project = get_object_or_404(
@@ -32,19 +35,18 @@ def project_detail_view(request, project_id):
         {"project": project},
     )
 
+
 @require_POST
 @login_required
 def complete_project_view(request, project_id):
     project_obj = get_object_or_404(Project, id=project_id)
 
-    # Проверка: только владелец может завершить проект
     if project_obj.owner != request.user:
         return JsonResponse(
             {"status": "error", "message": "Только владелец может завершить проект"},
             status=HTTPStatus.FORBIDDEN,
         )
 
-    # Проверка: проект должен быть открыт
     if project_obj.status != Project.Status.OPEN:
         return JsonResponse(
             {"status": "error", "message": "Проект уже завершен"},
@@ -61,6 +63,7 @@ def complete_project_view(request, project_id):
         },
         status=HTTPStatus.OK,
     )
+
 
 @login_required
 def create_project_view(request):
@@ -79,6 +82,7 @@ def create_project_view(request):
     project_obj.participants.add(request.user)
     
     return redirect("projects:detail", project_id=project_obj.id)
+
 
 @login_required
 def edit_project_view(request, project_id):
@@ -99,32 +103,34 @@ def edit_project_view(request, project_id):
     updated_project = form.save()
     return redirect("projects:detail", project_id=updated_project.id)
 
+
 @require_POST
 @login_required
 def toggle_participate_view(request, project_id):
     project_obj = get_object_or_404(Project, id=project_id)
     
-    if request.user in project_obj.participants.all():
+    is_participant = project_obj.participants.filter(id=request.user.id).exists()
+    
+    if is_participant:
         project_obj.participants.remove(request.user)
-        is_participant = False
     else:
         project_obj.participants.add(request.user)
-        is_participant = True
     
     return JsonResponse(
         {
             "status": "ok",
-            "is_participant": is_participant,
+            "is_participant": not is_participant,
             "participants_count": project_obj.participants.count(),
         },
         status=HTTPStatus.OK,
     )
 
+
 @require_POST
 @login_required
 def toggle_favorite_view(request, project_id):
     project_obj = get_object_or_404(Project, id=project_id)
-    in_favorites = project_obj in request.user.favorites.all()
+    in_favorites = request.user.favorites.filter(id=project_obj.id).exists()
     
     if in_favorites:
         request.user.favorites.remove(project_obj)
@@ -138,6 +144,7 @@ def toggle_favorite_view(request, project_id):
         },
         status=HTTPStatus.OK,
     )
+
 
 @login_required
 def favorite_projects_view(request):

@@ -2,17 +2,16 @@ from django.db import models
 from django.conf import settings
 from django.utils.translation import gettext_lazy as _
 
+from constants import ProjectConstants
+
+
 class Project(models.Model):
     class Status(models.TextChoices):
         OPEN = 'open', _('Открыт')
         CLOSED = 'closed', _('Закрыт')
 
-    # Константы для максимальной длины полей
-    NAME_MAX_LENGTH = 200
-    STATUS_MAX_LENGTH = max(len(status) for status, _ in Status.choices)
-
     name = models.CharField(
-        max_length=NAME_MAX_LENGTH,
+        max_length=ProjectConstants.NAME_MAX_LENGTH,
         verbose_name=_('Название')
     )
     description = models.TextField(
@@ -36,7 +35,7 @@ class Project(models.Model):
         verbose_name=_('Ссылка на GitHub')
     )
     status = models.CharField(
-        max_length=STATUS_MAX_LENGTH,
+        max_length=max(len(status) for status, _ in Status.choices),
         choices=Status.choices,
         default=Status.OPEN,
         verbose_name=_('Статус')
